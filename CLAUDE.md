@@ -1,6 +1,10 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 Factory Inventory Management System Demo with GitHub integration - Full-stack application with Vue 3 frontend, Python FastAPI backend, and in-memory mock data (no database).
+
+Subdirectory guidance lives in `client/CLAUDE.md` (Vue patterns) and `server/CLAUDE.md` (FastAPI patterns) — read those before deep work in either area.
 
 ## Critical Tool Usage Rules
 
@@ -11,6 +15,7 @@ Use the Task tool with these specialized subagents for appropriate tasks:
   - Examples: Creating components, fixing reactivity issues, performance optimization, complex state management
   - **MANDATORY RULE: ANY time you need to create or significantly modify a .vue file, you MUST delegate to vue-expert**
 - **code-reviewer**: Use after writing significant code to review quality and best practices
+- **security-auditor**: Use to audit changes for security issues (see `.claude/agents/security-auditor.md`)
 - **Explore**: Use for understanding codebase structure, searching for patterns, or answering questions about how components work
 - **general-purpose**: Use for complex multi-step tasks or when other agents don't fit
 
@@ -33,25 +38,68 @@ Use the Task tool with these specialized subagents for appropriate tasks:
 ```bash
 # Backend
 cd server
-uv run python main.py
+uv run python main.py        # http://localhost:8001, docs at /docs
 
 # Frontend
 cd client
-npm install && npm run dev
+npm install && npm run dev   # http://localhost:3000
 ```
+
+macOS/Linux can start both with `./scripts/start.sh` (and `./scripts/stop.sh`). On Windows, run the two commands above in separate terminals.
+
+## Testing
+
+Backend tests use pytest + FastAPI TestClient. Run from the `tests/` directory:
+
+```bash
+cd tests
+uv run pytest -v                                          # all 51 tests
+uv run pytest backend/test_inventory.py -v                # one file
+uv run pytest backend/test_inventory.py::TestInventoryEndpoints::test_get_all_inventory -v   # one test
+uv run pytest --cov=../server --cov-report=html           # coverage
+```
+
+`conftest.py` adds `../server` to `sys.path` and imports `main.app`, so the server does not need to be running. Test files live in `tests/backend/`, classes are `Test*`, functions are `test_*`.
+
+## Frontend Build
+
+```bash
+cd client
+npm run build     # output: client/dist/
+npm run preview   # preview the production build
+```
+
+## Custom Slash Commands
+
+Project commands in `.claude/commands/`: `/start`, `/stop`, `/test`, `/optimize`, `/demo-branch`, `/reset-branch`.
 
 ## Key Patterns
 
-**Filter System**: 4 filters (Time Period, Warehouse, Category, Order Status) apply to all data via query params
+**Filter System**: 4 filters (Time Period, Warehouse, Category, Order Status) apply to all data via query params; shared state lives in `client/src/composables/useFilters.js`
 **Data Flow**: Vue filters → `client/src/api.js` → FastAPI → In-memory filtering → Pydantic validation → Computed properties
 **Reactivity**: Raw data in refs (`allOrders`, `inventoryItems`), derived data in computed properties
+**i18n**: English/Japanese via `composables/useI18n.js` + `locales/{en,ja}.js`, toggled by `components/LanguageSwitcher.vue`. New UI strings must be added to both locale files.
+**Auth**: Client-side auth state in `composables/useAuth.js` (demo only — no backend enforcement)
+**Currency formatting**: Centralized in `client/src/utils/currency.js`
+
+## Conventions
+- Always document non-obvious logic changes with comments
 
 ## API Endpoints
-- `GET /api/inventory` - Filters: warehouse, category
-- `GET /api/orders` - Filters: warehouse, category, status, month
+
+Read (with optional filters where noted):
+- `GET /api/inventory` - Filters: warehouse, category — and `GET /api/inventory/{id}`
+- `GET /api/orders` - Filters: warehouse, category, status, month — and `GET /api/orders/{id}`
 - `GET /api/dashboard/summary` - All filters
 - `GET /api/demand`, `/api/backlog` - No filters
-- `GET /api/spending/*` - Summary, monthly, categories, transactions
+- `GET /api/spending/*` - summary, monthly, categories, transactions
+- `GET /api/reports/quarterly`, `GET /api/reports/monthly-trends`
+
+Mutating (these change in-memory state; lost on server restart):
+- `GET/POST /api/tasks`, `PATCH /api/tasks/{id}` (toggle), `DELETE /api/tasks/{id}`
+- `POST /api/purchase-orders`, `GET /api/purchase-orders/{backlogItemId}`
+
+The Vue API client wrapping all of these is `client/src/api.js`.
 
 ## Common Issues
 1. Use unique keys in v-for (not `index`) - use `sku`, `month`, etc.
@@ -61,10 +109,13 @@ npm install && npm run dev
 5. Revenue goals: $800K/month single, $9.6M YTD all months
 
 ## File Locations
-- Views: `client/src/views/*.vue`
+- Views (one per route): `client/src/views/*.vue` — Dashboard, Inventory, Orders, Demand, Backlog, Spending, Reports
+- Reusable components / modals: `client/src/components/*.vue`
+- Composables (shared state): `client/src/composables/` — `useFilters`, `useAuth`, `useI18n`
 - API Client: `client/src/api.js`
-- Backend: `server/main.py`, `server/mock_data.py`
+- Backend: `server/main.py` (endpoints), `server/mock_data.py` (loads JSON), `server/generate_data.py` (regenerates data)
 - Data: `server/data/*.json`
+- Tests: `tests/backend/test_*.py`
 - Styles: `client/src/App.vue`
 
 ## Design System
