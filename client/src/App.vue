@@ -1,31 +1,24 @@
 <template>
-  <div class="app">
+  <div class="app" :class="{ 'sidebar-collapsed': collapsed }">
     <header class="top-nav">
       <div class="nav-container">
+        <button
+          class="sidebar-toggle"
+          type="button"
+          :aria-label="t('nav.toggleSidebar')"
+          :aria-expanded="(!collapsed).toString()"
+          @click="toggleSidebar"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
         <div class="logo">
           <h1>{{ t('nav.companyName') }}</h1>
           <span class="subtitle">{{ t('nav.subtitle') }}</span>
         </div>
-        <nav class="nav-tabs">
-          <router-link to="/" :class="{ active: $route.path === '/' }">
-            {{ t('nav.overview') }}
-          </router-link>
-          <router-link to="/inventory" :class="{ active: $route.path === '/inventory' }">
-            {{ t('nav.inventory') }}
-          </router-link>
-          <router-link to="/orders" :class="{ active: $route.path === '/orders' }">
-            {{ t('nav.orders') }}
-          </router-link>
-          <router-link to="/spending" :class="{ active: $route.path === '/spending' }">
-            {{ t('nav.finance') }}
-          </router-link>
-          <router-link to="/demand" :class="{ active: $route.path === '/demand' }">
-            {{ t('nav.demandForecast') }}
-          </router-link>
-          <router-link to="/reports" :class="{ active: $route.path === '/reports' }">
-            Reports
-          </router-link>
-        </nav>
         <LanguageSwitcher />
         <ProfileMenu
           @show-profile-details="showProfileDetails = true"
@@ -33,10 +26,31 @@
         />
       </div>
     </header>
-    <FilterBar />
-    <main class="main-content">
-      <router-view />
-    </main>
+
+    <div class="app-body">
+      <aside class="sidebar" :class="{ collapsed }">
+        <nav class="sidebar-nav">
+          <router-link
+            v-for="item in navItems"
+            :key="item.to"
+            :to="item.to"
+            class="nav-item"
+            :class="{ active: $route.path === item.to }"
+            :title="collapsed ? t(item.labelKey) : null"
+          >
+            <span class="nav-icon" v-html="item.svg"></span>
+            <span class="nav-label">{{ t(item.labelKey) }}</span>
+          </router-link>
+        </nav>
+      </aside>
+
+      <div class="content-wrapper">
+        <FilterBar />
+        <main class="main-content">
+          <router-view />
+        </main>
+      </div>
+    </div>
 
     <ProfileDetailsModal
       :is-open="showProfileDetails"
@@ -55,7 +69,7 @@
 </template>
 
 <script>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { api } from './api'
 import { useAuth } from './composables/useAuth'
 import { useI18n } from './composables/useI18n'
@@ -64,6 +78,21 @@ import ProfileMenu from './components/ProfileMenu.vue'
 import ProfileDetailsModal from './components/ProfileDetailsModal.vue'
 import TasksModal from './components/TasksModal.vue'
 import LanguageSwitcher from './components/LanguageSwitcher.vue'
+
+// Below this viewport width the sidebar defaults to icons-only mode
+const SIDEBAR_COLLAPSE_BREAKPOINT = 1024
+
+// Sidebar navigation items. Icons are inline Feather-style SVGs (no icon library
+// in this project) and inherit color via currentColor from the nav item.
+const navItems = [
+  { to: '/', labelKey: 'nav.overview', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>' },
+  { to: '/inventory', labelKey: 'nav.inventory', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>' },
+  { to: '/orders', labelKey: 'nav.orders', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>' },
+  { to: '/spending', labelKey: 'nav.finance', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>' },
+  { to: '/demand', labelKey: 'nav.demandForecast', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>' },
+  { to: '/restocking', labelKey: 'nav.restocking', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>' },
+  { to: '/reports', labelKey: 'nav.reports', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>' }
+]
 
 export default {
   name: 'App',
@@ -80,6 +109,18 @@ export default {
     const showProfileDetails = ref(false)
     const showTasks = ref(false)
     const apiTasks = ref([])
+
+    // Sidebar collapse state. Auto-collapses to icons-only on smaller screens,
+    // and the header toggle lets the user override it on larger screens.
+    const collapsed = ref(false)
+
+    const handleResize = () => {
+      collapsed.value = window.innerWidth < SIDEBAR_COLLAPSE_BREAKPOINT
+    }
+
+    const toggleSidebar = () => {
+      collapsed.value = !collapsed.value
+    }
 
     // Merge mock tasks from currentUser with API tasks
     const tasks = computed(() => {
@@ -146,10 +187,21 @@ export default {
       }
     }
 
-    onMounted(loadTasks)
+    onMounted(() => {
+      loadTasks()
+      handleResize()
+      window.addEventListener('resize', handleResize)
+    })
+
+    onUnmounted(() => {
+      window.removeEventListener('resize', handleResize)
+    })
 
     return {
       t,
+      navItems,
+      collapsed,
+      toggleSidebar,
       showProfileDetails,
       showTasks,
       tasks,
@@ -200,12 +252,28 @@ body {
   height: 70px;
 }
 
-.nav-container > .nav-tabs {
-  margin-left: auto;
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
   margin-right: 1rem;
+  border: none;
+  background: transparent;
+  color: #475569;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.sidebar-toggle:hover {
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
 .nav-container > .language-switcher {
+  margin-left: auto;
   margin-right: 1rem;
 }
 
@@ -230,47 +298,117 @@ body {
   border-left: 1px solid #e2e8f0;
 }
 
-.nav-tabs {
+/* Layout: sidebar + content */
+.app-body {
+  flex: 1;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
   display: flex;
-  gap: 0.25rem;
+  align-items: flex-start;
 }
 
-.nav-tabs a {
-  padding: 0.625rem 1.25rem;
+.sidebar {
+  position: sticky;
+  top: 70px;
+  align-self: flex-start;
+  flex-shrink: 0;
+  width: 232px;
+  height: calc(100vh - 70px);
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: width 0.2s ease;
+}
+
+.sidebar.collapsed {
+  width: 68px;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 1rem 0.75rem;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 8px;
   color: #64748b;
   text-decoration: none;
   font-weight: 500;
   font-size: 0.938rem;
-  border-radius: 6px;
-  transition: all 0.2s ease;
+  white-space: nowrap;
   position: relative;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.nav-tabs a:hover {
+.nav-item:hover {
   color: #0f172a;
   background: #f1f5f9;
 }
 
-.nav-tabs a.active {
+.nav-item.active {
   color: #2563eb;
   background: #eff6ff;
 }
 
-.nav-tabs a.active::after {
+.nav-item.active::before {
   content: '';
   position: absolute;
-  bottom: -1px;
   left: 0;
-  right: 0;
-  height: 2px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
   background: #2563eb;
+}
+
+.nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+}
+
+.nav-icon svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Icons-only collapsed mode */
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 0.7rem 0;
+}
+
+.sidebar.collapsed .nav-label {
+  display: none;
+}
+
+.content-wrapper {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .main-content {
   flex: 1;
-  max-width: 1600px;
   width: 100%;
-  margin: 0 auto;
   padding: 1.5rem 2rem;
 }
 

@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from pydantic import BaseModel
+from datetime import datetime, timedelta
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
 
 app = FastAPI(title="Factory Inventory Management System")
@@ -13,6 +14,11 @@ QUARTER_MAP = {
     'Q3-2025': ['2025-07', '2025-08', '2025-09'],
     'Q4-2025': ['2025-10', '2025-11', '2025-12']
 }
+
+# Restocking delivery lead time (in days) by demand trend.
+# Faster restock for items with rising demand; slower for stable/declining items.
+LEAD_TIME_BY_TREND = {"increasing": 5, "stable": 10, "decreasing": 14}
+DEFAULT_LEAD_TIME = 10
 
 def filter_by_month(items: list, month: Optional[str]) -> list:
     """Filter items by month/quarter based on order_date field"""
@@ -89,6 +95,7 @@ class DemandForecast(BaseModel):
     forecasted_demand: int
     trend: str
     period: str
+    unit_cost: float
 
 class BacklogItem(BaseModel):
     id: str
@@ -119,6 +126,15 @@ class CreatePurchaseOrderRequest(BaseModel):
     unit_cost: float
     expected_delivery_date: str
     notes: Optional[str] = None
+
+class RestockOrderItem(BaseModel):
+    sku: str
+    name: str
+    quantity: int
+    unit_price: float
+
+class CreateRestockingOrderRequest(BaseModel):
+    items: List[RestockOrderItem]
 
 # API endpoints
 @app.get("/")
@@ -160,6 +176,46 @@ def get_order(order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return order
+
+@app.post("/api/restocking-orders", response_model=Order)
+def create_restocking_order(request: CreateRestockingOrderRequest):
+    """Create a restocking order from recommended demand-forecast items.
+
+    The order is appended to the in-memory orders list with status "Submitted",
+    so it appears in GET /api/orders for the rest of the server session
+    (non-persistent, consistent with the app's in-memory data model).
+    """
+    if not request.items:
+        raise HTTPException(status_code=400, detail="Restocking order must contain at least one item")
+
+    # Build a sku -> trend lookup so delivery lead time reflects each item's demand trend.
+    trend_by_sku = {f["item_sku"]: f.get("trend") for f in demand_forecasts}
+    # The order's delivery is gated by its slowest item (max lead time across items).
+    lead_days = max(
+        LEAD_TIME_BY_TREND.get(trend_by_sku.get(item.sku), DEFAULT_LEAD_TIME)
+        for item in request.items
+    )
+
+    now = datetime.now()
+    new_id = str(max((int(o["id"]) for o in orders), default=0) + 1)
+    total_value = round(sum(item.quantity * item.unit_price for item in request.items), 2)
+
+    new_order = {
+        "id": new_id,
+        "order_number": f"RST-2025-{int(new_id):04d}",
+        "customer": "Internal Restocking",
+        "items": [item.model_dump() for item in request.items],
+        "status": "Submitted",
+        "order_date": now.isoformat(timespec="seconds"),
+        "expected_delivery": (now + timedelta(days=lead_days)).isoformat(timespec="seconds"),
+        "total_value": total_value,
+        "actual_delivery": None,
+        "warehouse": None,
+        "category": None,
+    }
+
+    orders.append(new_order)
+    return new_order
 
 @app.get("/api/demand", response_model=List[DemandForecast])
 def get_demand_forecasts():
